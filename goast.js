@@ -104,13 +104,63 @@ func main() {\n\
       }
     }
 
-    $scope.parse = function() {
-      window.global.source = $scope.source
-      run()
-      let data = JSON.parse(output);
-      $scope.asts   = [data.ast];
-      $scope.source = data.source;
-      $scope.dump   = data.dump;
+    $scope.parse = async function() {
+      console.log("Parse button clicked, source:", $scope.source);
+      
+      if (!$scope.source || $scope.source.trim() === "") {
+        alert("请输入 Go 源代码");
+        return;
+      }
+      
+      // 设置源代码到全局变量，WASM 会从这里读取
+      window.global.source = $scope.source;
+      window.source = $scope.source; // 也设置到 window，确保兼容性
+      
+      // 清空之前的输出
+      window.output = "";
+      
+      try {
+        // 检查 WASM 是否就绪
+        if (typeof window.wasmReady === 'undefined' || !window.wasmReady) {
+          alert("WASM 模块正在加载中，请稍候...");
+          return;
+        }
+        
+        console.log("Starting WASM execution...");
+        // 等待 WASM 执行完成
+        await window.run();
+        
+        console.log("WASM execution finished, checking output...");
+        
+        // 从全局变量读取输出
+        if (typeof window.output === 'undefined' || window.output === "") {
+          console.error("Output not found or empty. Make sure WASM module set the 'output' global variable.");
+          alert("解析失败: 未获取到输出结果");
+          return;
+        }
+        
+        console.log("Output received:", window.output);
+        let data = JSON.parse(window.output);
+        
+        // 检查是否有错误
+        if (data.error) {
+          console.error("Parse error:", data.error);
+          alert("解析错误: " + data.error);
+          return;
+        }
+        
+        $scope.asts   = [data.ast];
+        $scope.source = data.source;
+        $scope.dump   = data.dump;
+        
+        console.log("AST parsed successfully:", data);
+        
+        // 手动触发 Angular 更新
+        $scope.$apply();
+      } catch (err) {
+        console.error("Error parsing source:", err);
+        alert("解析错误: " + err.message);
+      }
     }
 
     $scope.toggle = function(scope) {

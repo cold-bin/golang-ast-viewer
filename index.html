@@ -12,6 +12,11 @@
     <script src="goast.js"></script>
     <script src="wasm_exec.js"></script>
     <script>
+      // 确保 window.global 存在
+      if (typeof window.global === 'undefined') {
+        window.global = window;
+      }
+      
       if (!WebAssembly.instantiateStreaming) {
         // polyfill
         WebAssembly.instantiateStreaming = async (resp, importObject) => {
@@ -19,17 +24,86 @@
           return await WebAssembly.instantiate(source, importObject);
         };
       }
-      const go = new Go();
-      let mod, inst;
-      WebAssembly.instantiateStreaming(fetch("lib.wasm"), go.importObject).then(
-        result => {
-          mod = result.module;
-          inst = result.instance;
+      
+      // 使用全局变量，确保其他脚本可以访问
+      window.wasmBytes = null;
+      window.wasmReady = false;
+      
+      // 初始化 WASM 模块（只加载，不编译）
+      fetch("lib.wasm").then(response => response.arrayBuffer()).then(bytes => {
+        window.wasmBytes = bytes;
+        window.wasmReady = true;
+        console.log("WASM bytes loaded successfully, size:", bytes.byteLength);
+      }).catch(err => {
+        console.error("Failed to load WASM module:", err);
+        window.wasmReady = false;
+      });
+      
+      // 确保 output 在全局作用域
+      window.output = window.output || "";
+      
+      // 将 run 函数也放到全局作用域
+      window.run = async function() {
+        if (!window.wasmReady || !window.wasmBytes) {
+          console.error("WASM module not ready yet");
+          throw new Error("WASM module not ready");
         }
-      );
-      async function run() {
-        await go.run(inst);
-        inst = await WebAssembly.instantiate(mod, go.importObject); // reset instance
+        
+        try {
+          // 每次调用都创建新的 Go 实例
+          const go = new Go();
+          
+          // 检查 importObject 是否存在
+          if (!go.importObject) {
+            console.error("Go importObject is not available");
+            throw new Error("Go importObject is not available");
+          }
+          
+          console.log("Instantiating WASM with importObject:", go.importObject);
+          
+          // 使用 ArrayBuffer 直接实例化 WASM 模块
+          // WebAssembly.instantiate(bufferSource, importObject) 返回 { module, instance }
+          console.log("Instantiating WASM module from bytes...");
+          console.log("WASM bytes size:", window.wasmBytes.byteLength);
+          console.log("Import object:", go.importObject);
+          
+          const result = await WebAssembly.instantiate(window.wasmBytes, go.importObject);
+          
+          console.log("WASM instantiated successfully");
+          console.log("Full result:", result);
+          console.log("Result type:", typeof result);
+          console.log("Result keys:", result ? Object.keys(result) : "result is null/undefined");
+          
+          // 检查返回值结构
+          if (!result) {
+            throw new Error("WebAssembly.instantiate returned null or undefined");
+          }
+          
+          // WebAssembly.instantiate 返回 { module, instance }
+          const wasmInstance = result.instance;
+          if (!wasmInstance) {
+            console.error("Unexpected result structure:", result);
+            throw new Error("Invalid WASM result structure. Expected {module, instance}, got: " + JSON.stringify(Object.keys(result || {})));
+          }
+          
+          console.log("WASM instance:", wasmInstance);
+          console.log("WASM exports:", wasmInstance.exports);
+          console.log("WASM exports keys:", wasmInstance.exports ? Object.keys(wasmInstance.exports) : "no exports");
+          
+          // 检查实例是否有效
+          if (!wasmInstance.exports) {
+            throw new Error("Invalid WASM instance: missing exports");
+          }
+          
+          // 运行 Go 程序（这会执行 main 函数）
+          await go.run(wasmInstance);
+          
+          console.log("WASM execution completed, output:", window.output);
+        } catch (err) {
+          console.error("Error running WASM:", err);
+          console.error("Error details:", err.message, err.stack);
+          throw err;
+        }
       }
     </script>
 
