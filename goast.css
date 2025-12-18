@@ -1,13 +1,13 @@
 .btn {
-  background-color: rgb(92, 184, 92);
-  border-bottom-color: rgb(76, 174, 76);
+  background-color: #16a34a;
+  border-bottom-color: #15803d;
   border-bottom-left-radius: 3px;
   border-bottom-right-radius: 3px;
   border-bottom-width: 1px;
-  border-left-color: rgb(76, 174, 76);
+  border-left-color: #15803d;
   border-left-width: 1px;
-  border-right-color: rgb(76, 174, 76);
-  border-top-color: rgb(76, 174, 76);
+  border-right-color: #15803d;
+  border-top-color: #15803d;
   border-top-left-radius: 3px;
   border-top-right-radius: 3px;
   border-top-style: solid;
@@ -16,7 +16,7 @@
   color: rgb(255, 255, 255);
   cursor: pointer;
   display: inline-block;
-  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
   font-size: 12px;
   font-weight: normal;
   height: 22px;
@@ -36,12 +36,43 @@
   width: 24px;
 }
 
+/* Theme */
+:root {
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e7eaf0;
+  --shadow: 0 6px 24px rgba(16, 24, 40, 0.06);
+  --shadow-sm: 0 2px 10px rgba(16, 24, 40, 0.06);
+  --radius: 12px;
+  --accent: #2563eb;
+  --accent-2: #10b981;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 #main {
-  width: 80%;
-  margin-left: 10%;
-  margin-right: 10%;
-  border-right: 1px solid #eee;
-  border-left: 1px solid #eee;
+  width: min(92%, 1400px);
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 1400px;
+  background: var(--panel);
+  border: 1px solid #eee;
+  border-top: none;
+  box-shadow: var(--shadow);
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
 }
 
 .code {
@@ -54,11 +85,29 @@ h1, h2, h3, h4 {
   font-family: 'Raleway',  sans-serif;
 }
 
+.hero {
+  padding: 18px 18px 0;
+}
+
+.hero-site {
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.hefo-tagline {
+  color: var(--muted);
+}
+
+.hero .code {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
 .btn-collapse-all{
   color: white;
   border-radius: 4px;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
-  background: rgb(66,  184,  221);
+  background: #0ea5e9;
 }
 
 .goast-layout{
@@ -67,6 +116,8 @@ h1, h2, h3, h4 {
   align-items: stretch;
   /* avoid wrapping on wide screens; we’ll wrap on small screens below */
   flex-wrap: nowrap;
+  gap: 16px;
+  padding: 12px 12px 18px;
 }
 
 .goast-layout .source,
@@ -87,43 +138,117 @@ h1, h2, h3, h4 {
   }
 }
 
+.goast-layout legend {
+  display: block;
+  padding: 0 0 10px;
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
 .source {
-  padding: 10px;
-  border-right: 1px solid #333;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
 }
 
 .ast {
-  padding: 10px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+
+  /* Make AST scroll within its own panel */
+  max-height: calc(100vh - 240px);
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.ast:hover {
+  overflow-y: auto;
 }
 
 #tree-root {
   margin-top: 10px
 }
 
+.source .pure-control-group:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.source input[type="file"] {
+  flex: 1 1 auto;
+  max-width: 100%;
+  font-size: 13px;
+}
+
+.source .pure-button,
+.ast .pure-button {
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: 0 1px 0 rgba(16, 24, 40, 0.04);
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.source .pure-button:hover,
+.ast .pure-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.98);
+}
+
 #code {
   width:100%;
   /* Make the source editor taller by default (independent of parent height) */
   height: clamp(360px, 60vh, 900px);
+  resize: vertical;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  box-sizing: border-box;
+}
+
+#code:focus {
+  outline: none;
+  border-color: rgba(37, 99, 235, 0.55);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
 }
 
 .btn-expand-all{
   color: white;
   border-radius: 4px;
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
-  background: rgb(28,  184,  65);
+  background: #22c55e;
 }
 
 .tree-node {
-    background: #f8faff;
-    border: 1px solid #dae2ea;
-    color: #7c9eb2;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    color: #334155;
     padding: 10px 10px;
+    border-radius: 10px;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 
 .tree-node:hover {
-    color: #438eb9;
-    background: #f4f6f7;
-    border-color: #dce2e8;
+    color: #0f172a;
+    background: #f1f5f9;
+    border-color: #cbd5e1;
 }
 
 .hidden {
@@ -132,9 +257,30 @@ h1, h2, h3, h4 {
 }
 
 .dump {
-  font-size:10px;
-  overflow-y:auto;
-  min-height:20%;
-  height:50%;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow: auto;
+  padding: 10px 12px;
+  background: #0b1220;
+  color: #e2e8f0;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  max-height: 38vh;
+}
 
+/* Subtle scrollbar (WebKit) */
+.ast:hover::-webkit-scrollbar,
+.dump::-webkit-scrollbar {
+  width: 10px;
+}
+.ast:hover::-webkit-scrollbar-track,
+.dump::-webkit-scrollbar-track {
+  background: transparent;
+}
+.ast:hover::-webkit-scrollbar-thumb,
+.dump::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
 }
