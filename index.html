@@ -33,7 +33,6 @@
       fetch("lib.wasm").then(response => response.arrayBuffer()).then(bytes => {
         window.wasmBytes = bytes;
         window.wasmReady = true;
-        console.log("WASM bytes loaded successfully, size:", bytes.byteLength);
       }).catch(err => {
         console.error("Failed to load WASM module:", err);
         window.wasmReady = false;
@@ -41,69 +40,47 @@
       
       // 确保 output 在全局作用域
       window.output = window.output || "";
-      
-      // 将 run 函数也放到全局作用域
-      window.run = async function() {
-        if (!window.wasmReady || !window.wasmBytes) {
-          console.error("WASM module not ready yet");
-          throw new Error("WASM module not ready");
-        }
-        
-        try {
-          // 每次调用都创建新的 Go 实例
+
+      // Start Go WASM runtime ONCE and keep it alive (no per-parse go.run restart).
+      window.__goastWasm = window.__goastWasm || {
+        startPromise: null
+      };
+
+      window.startWasm = async function() {
+        if (window.__goastWasm.startPromise) return window.__goastWasm.startPromise;
+
+        window.__goastWasm.startPromise = (async () => {
+          if (!window.wasmReady || !window.wasmBytes) {
+            throw new Error("WASM module not ready");
+          }
+
           const go = new Go();
-          
-          // 检查 importObject 是否存在
           if (!go.importObject) {
-            console.error("Go importObject is not available");
             throw new Error("Go importObject is not available");
           }
-          
-          console.log("Instantiating WASM with importObject:", go.importObject);
-          
-          // 使用 ArrayBuffer 直接实例化 WASM 模块
-          // WebAssembly.instantiate(bufferSource, importObject) 返回 { module, instance }
-          console.log("Instantiating WASM module from bytes...");
-          console.log("WASM bytes size:", window.wasmBytes.byteLength);
-          console.log("Import object:", go.importObject);
-          
+
           const result = await WebAssembly.instantiate(window.wasmBytes, go.importObject);
-          
-          console.log("WASM instantiated successfully");
-          console.log("Full result:", result);
-          console.log("Result type:", typeof result);
-          console.log("Result keys:", result ? Object.keys(result) : "result is null/undefined");
-          
-          // 检查返回值结构
-          if (!result) {
-            throw new Error("WebAssembly.instantiate returned null or undefined");
+          const wasmInstance = result && result.instance;
+          if (!wasmInstance || !wasmInstance.exports) {
+            throw new Error("Invalid WASM instance");
           }
-          
-          // WebAssembly.instantiate 返回 { module, instance }
-          const wasmInstance = result.instance;
-          if (!wasmInstance) {
-            console.error("Unexpected result structure:", result);
-            throw new Error("Invalid WASM result structure. Expected {module, instance}, got: " + JSON.stringify(Object.keys(result || {})));
+
+          // go.run never resolves because Go program stays alive; don't await it.
+          go.run(wasmInstance).catch(err => console.error("go.run failed:", err));
+
+          // Wait until Go registers parseGoSource.
+          const start = Date.now();
+          while (typeof window.parseGoSource !== "function") {
+            if (Date.now() - start > 5000) {
+              throw new Error("WASM started but parseGoSource not available");
+            }
+            await new Promise(r => setTimeout(r, 10));
           }
-          
-          console.log("WASM instance:", wasmInstance);
-          console.log("WASM exports:", wasmInstance.exports);
-          console.log("WASM exports keys:", wasmInstance.exports ? Object.keys(wasmInstance.exports) : "no exports");
-          
-          // 检查实例是否有效
-          if (!wasmInstance.exports) {
-            throw new Error("Invalid WASM instance: missing exports");
-          }
-          
-          // 运行 Go 程序（这会执行 main 函数）
-          await go.run(wasmInstance);
-          
-          console.log("WASM execution completed, output:", window.output);
-        } catch (err) {
-          console.error("Error running WASM:", err);
-          console.error("Error details:", err.message, err.stack);
-          throw err;
-        }
+
+          return true;
+        })();
+
+        return window.__goastWasm.startPromise;
       }
     </script>
 
@@ -146,20 +123,20 @@
 
           <!-- Nested node template -->
           <script type="text/ng-template" id="nodes_renderer.html">
-            <div class="tree-node tree-node-content" data-nodrag ng-click="toggle(this)">
+            <div class="tree-node tree-node-content" data-nodrag ng-click="toggle(this); focus(this); $event.stopPropagation()">
               <a class="btn pure-button pure-button--success" data-nodrag ><span class="glyphicon" ng-class="{'glyphicon-chevron-right': collapsed, 'glyphicon-chevron-down': !collapsed}">
                 {{ collapsedLabel(this) }}
               </span></a>
               {{node.label}}
             </div>
-            <ol ui-tree-nodes="" ng-model="node.children" ng-class="{hidden: collapsed}">
-              <li ng-repeat="node in node.children" ui-tree-node ng-include="'nodes_renderer.html'" collapsed="true" ng-mouseover="focus(this);$event.stopPropagation()">
+            <ol ui-tree-nodes="" ng-if="!node.collapsed" ng-model="node.children">
+              <li ng-repeat="node in node.children track by $index" ui-tree-node ng-include="'nodes_renderer.html'" collapsed="node.collapsed">
               </li>
             </ol>
           </script>
           <div ui-tree id="tree-root">
             <ol ui-tree-nodes="" ng-model="asts">
-              <li ng-repeat="node in asts" ui-tree-node ng-include="'nodes_renderer.html'" ng-mouseover="focus(this); $event.stopPropagation()"></li>
+              <li ng-repeat="node in asts track by $index" ui-tree-node ng-include="'nodes_renderer.html'" collapsed="node.collapsed"></li>
             </ol>
           </div>
 
