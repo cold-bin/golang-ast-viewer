@@ -61,9 +61,35 @@ h1, h2, h3, h4 {
   background: rgb(66,  184,  221);
 }
 
+.goast-layout{
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  /* avoid wrapping on wide screens; we’ll wrap on small screens below */
+  flex-wrap: nowrap;
+}
+
+.goast-layout .source,
+.goast-layout .ast{
+  /* make both columns share the row evenly */
+  flex: 1 1 0;
+  /* allow inner content (like long pre/textareas) to shrink instead of forcing wrap */
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .goast-layout{
+    flex-wrap: wrap;
+  }
+  .goast-layout .source,
+  .goast-layout .ast{
+    flex-basis: 100%;
+  }
+}
+
 .source {
   padding: 10px;
-  border-right: 1xp solid #333;
+  border-right: 1px solid #333;
 }
 
 .ast {
