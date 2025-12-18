@@ -167,13 +167,24 @@ h1, h2, h3, h4 {
 
   /* Make AST scroll within its own panel */
   max-height: calc(100vh - 240px);
-  overflow-y: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
 
+/* Keep scroll working (for programmatic scrollIntoView), but hide scrollbar unless hovered */
+.ast {
+  scrollbar-width: none; /* Firefox */
+}
 .ast:hover {
-  overflow-y: auto;
+  scrollbar-width: thin; /* Firefox */
+}
+.ast::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
+.ast:hover::-webkit-scrollbar {
+  width: 10px;
 }
 
 #tree-root {
@@ -295,6 +306,18 @@ body.goast-has-codemirror #code {
     color: #0f172a;
     background: #f1f5f9;
     border-color: #cbd5e1;
+}
+
+/* Flash highlight for AST node in tree (3 times) */
+@keyframes goast-tree-flash {
+  0% { background: rgba(251, 191, 36, 0.00); }
+  50% { background: rgba(251, 191, 36, 0.22); }
+  100% { background: rgba(251, 191, 36, 0.00); }
+}
+
+.tree-node-content.goast-tree-flash {
+  border-radius: 10px;
+  animation: goast-tree-flash 900ms ease-in-out 0s 3;
 }
 
 .hidden {

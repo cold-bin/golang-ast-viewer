@@ -16,13 +16,34 @@ goastapp.directive('fileChange', function () {
             // Read file content into the editor textarea (ng-model="source").
             var reader = new FileReader();
             reader.onload = function () {
+                var text = reader.result || "";
                 $scope.$apply(function () {
                     $scope.sourcefile = file;
-                    $scope.source = reader.result || "";
+                    $scope.source = text;
                     // Reset previous results; user can click Parse to re-generate AST.
                     $scope.asts = null;
                     $scope.dump = null;
                 });
+
+                // If CodeMirror is active, force-update it too (covers async load/init timing).
+                try {
+                    var editor = $scope.editor || window.__goastEditor;
+                    if (editor && typeof editor.setValue === "function") {
+                        editor.setValue(text);
+                    }
+                } catch (e) {
+                    // ignore
+                }
+
+                // Auto-parse after file load (debounced in controller).
+                try {
+                    if (typeof $scope.parse === "function") {
+                        // Let the controller's debounce schedule handle it (via $watch/editor change).
+                        // If editor isn't ready yet, manual parse is still safe later.
+                    }
+                } catch (e) {
+                    // ignore
+                }
             };
             reader.onerror = function () {
                 $scope.$apply(function () {
@@ -79,7 +100,7 @@ goastapp.factory('uploadService', ['$rootScope', '$http',  function ($rootScope,
 
 // Controller
 // ----------
-goastapp.controller('GoastController', ['$scope', '$rootScope', 'uploadService', '$http', function ($scope, $rootScope, uploadService, $http) {
+goastapp.controller('GoastController', ['$scope', '$rootScope', 'uploadService', '$http', '$timeout', function ($scope, $rootScope, uploadService, $http, $timeout) {
 
     // 'file' is a JavaScript 'File' objects.
     $scope.sourcefile = null;
@@ -101,6 +122,39 @@ func main() {\n\
     $scope.editor = null;
     $scope._updatingFromEditor = false;
     $scope._updatingFromModel = false;
+    $scope._autoParseTimer = null;
+    $scope._suppressAutoParse = false;
+    $scope._lastParsedSource = null;
+    $scope._parseInFlight = false;
+    $scope._astRoot = null;
+    $scope._astIdCounter = 0;
+    $scope._astClickTimer = null;
+
+    function getCurrentSource() {
+      var editor = $scope.editor || window.__goastEditor;
+      if (editor && typeof editor.getValue === "function") {
+        return editor.getValue() || "";
+      }
+      return $scope.source || "";
+    }
+
+    function scheduleAutoParse() {
+      // Debounced auto-parse so AST stays up-to-date with editor content.
+      if ($scope._suppressAutoParse) return;
+      if ($scope._autoParseTimer) {
+        $timeout.cancel($scope._autoParseTimer);
+        $scope._autoParseTimer = null;
+      }
+      $scope._autoParseTimer = $timeout(function() {
+        $scope._autoParseTimer = null;
+        // Avoid re-parsing identical content.
+        var src = getCurrentSource();
+        if (src === ($scope._lastParsedSource || "")) return;
+        // Don't start another parse if one is running; next keystroke will schedule again.
+        if ($scope._parseInFlight) return;
+        $scope.parse();
+      }, 500);
+    }
 
     function ensureEditor() {
       if ($scope.editor) return $scope.editor;
@@ -123,6 +177,28 @@ func main() {\n\
 
       editor.setValue($scope.source || "");
 
+      // Click in editor -> reveal AST node (debounced, avoids firing during drag selection)
+      editor.on("mousedown", function(cm, e) {
+        if (e && e.button !== 0) return;
+        if ($scope._astClickTimer) {
+          clearTimeout($scope._astClickTimer);
+          $scope._astClickTimer = null;
+        }
+        $scope._astClickTimer = setTimeout(function() {
+          $scope._astClickTimer = null;
+          try {
+            if (cm.somethingSelected && cm.somethingSelected()) return;
+            var cur = cm.getCursor();
+            var charIndex = cm.indexFromPos(cur);
+            $scope.$applyAsync(function() {
+              $scope.revealAstNodeAtCharIndex(charIndex);
+            });
+          } catch (err) {
+            // ignore
+          }
+        }, 120);
+      });
+
       editor.on("change", function(cm) {
         if ($scope._updatingFromModel) return;
         $scope._updatingFromEditor = true;
@@ -130,6 +206,7 @@ func main() {\n\
         $scope.$applyAsync(function() {
           $scope.source = v;
           $scope._updatingFromEditor = false;
+          scheduleAutoParse();
         });
       });
 
@@ -148,6 +225,7 @@ func main() {\n\
       $scope._updatingFromModel = true;
       editor.setValue(newValue || "");
       $scope._updatingFromModel = false;
+      scheduleAutoParse();
     });
 
     // Initialize editor after initial render
@@ -159,25 +237,28 @@ func main() {\n\
       var maxBytes = 2 * 1024 * 1024; // safety: don't build for extremely huge files
 
       if (typeof TextEncoder === "undefined") {
-        return { byteToCharIndex: null, source: source || "", maxBytes: maxBytes };
+        return { byteToCharIndex: null, charToByteIndex: null, source: source || "", maxBytes: maxBytes };
       }
 
       var s = source || "";
       var byteToCharIndex = null;
+      var charToByteIndex = null;
       try {
         var enc = new TextEncoder();
         var bytes = enc.encode(s);
         if (bytes.length > maxBytes) {
-          return { byteToCharIndex: null, source: s, maxBytes: maxBytes };
+          return { byteToCharIndex: null, charToByteIndex: null, source: s, maxBytes: maxBytes };
         }
         byteToCharIndex = new Uint32Array(bytes.length + 1);
+        charToByteIndex = new Uint32Array(s.length + 1);
       } catch (e) {
-        return { byteToCharIndex: null, source: s, maxBytes: maxBytes };
+        return { byteToCharIndex: null, charToByteIndex: null, source: s, maxBytes: maxBytes };
       }
 
       var bytePos = 0;
       for (var i = 0; i < s.length; i++) {
         var startIndex = i;
+        charToByteIndex[startIndex] = bytePos;
         var code = s.charCodeAt(i);
         var cp = code;
 
@@ -186,6 +267,8 @@ func main() {\n\
           var next = s.charCodeAt(i + 1);
           if (next >= 0xDC00 && next <= 0xDFFF) {
             cp = ((code - 0xD800) << 10) + (next - 0xDC00) + 0x10000;
+            // map the 2nd UTF-16 code unit to the same byte position
+            charToByteIndex[startIndex + 1] = bytePos;
             i++; // consume low surrogate
           }
         }
@@ -205,8 +288,137 @@ func main() {\n\
       }
 
       byteToCharIndex[Math.min(bytePos, byteToCharIndex.length - 1)] = s.length;
-      return { byteToCharIndex: byteToCharIndex, source: s, byteLen: bytePos, maxBytes: maxBytes };
+      charToByteIndex[s.length] = bytePos;
+      return { byteToCharIndex: byteToCharIndex, charToByteIndex: charToByteIndex, source: s, byteLen: bytePos, maxBytes: maxBytes };
     }
+
+    function annotateAstParentsAndIds(root) {
+      if (!root) return;
+      $scope._astIdCounter = 0;
+      (function walk(node, parent) {
+        if (!node) return;
+        node._parent = parent || null;
+        node._id = (++$scope._astIdCounter);
+        if (node.children && node.children.length) {
+          for (var i = 0; i < node.children.length; i++) {
+            walk(node.children[i], node);
+          }
+        }
+      })(root, null);
+    }
+
+    function findDeepestNodeContaining(root, byteOffset) {
+      if (!root || typeof root.pos !== "number" || typeof root.end !== "number") return null;
+      var start = root.pos - 1;
+      var end = root.end - 1;
+      if (byteOffset < start || byteOffset > end) return null;
+
+      var best = root;
+      if (root.children && root.children.length) {
+        for (var i = 0; i < root.children.length; i++) {
+          var child = root.children[i];
+          var cand = findDeepestNodeContaining(child, byteOffset);
+          if (cand) {
+            var bestSpan = (best.end - best.pos);
+            var candSpan = (cand.end - cand.pos);
+            if (candSpan <= bestSpan) best = cand;
+          }
+        }
+      }
+      return best;
+    }
+
+    function pathToRoot(node) {
+      var path = [];
+      var cur = node;
+      while (cur) {
+        path.push(cur);
+        cur = cur._parent;
+      }
+      path.reverse();
+      return path;
+    }
+
+    function getRootNodesScope() {
+      var el = document.getElementById("tree-root");
+      if (!el) return null;
+      return angular.element(el).scope();
+    }
+
+    function findNodeScopeByModel(nodesScope, model) {
+      if (!nodesScope || !model || typeof nodesScope.childNodes !== "function") return null;
+      var nodes = nodesScope.childNodes();
+      for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i] && nodes[i].$modelValue === model) return nodes[i];
+      }
+      return null;
+    }
+
+    function flashTreeNodeById(id) {
+      try {
+        var el = document.querySelector('[data-ast-id="' + id + '"]');
+        if (!el) return;
+        el.classList.remove("goast-tree-flash");
+        void el.offsetWidth;
+        el.classList.add("goast-tree-flash");
+        setTimeout(function() { el.classList.remove("goast-tree-flash"); }, 2900);
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    function revealNodeInTree(node) {
+      if (!node) return;
+      var path = pathToRoot(node);
+      var rootNodesScope = getRootNodesScope();
+      if (!rootNodesScope) return;
+
+      // Expand each level sequentially using angular-ui-tree's real node scopes.
+      (function step(i, nodesScope, triesLeft) {
+        triesLeft = (typeof triesLeft === "number") ? triesLeft : 40;
+        if (i >= path.length) {
+          $timeout(function() {
+            var el = document.querySelector('[data-ast-id="' + node._id + '"]');
+            if (el && el.scrollIntoView) {
+              el.scrollIntoView({ block: "center", inline: "nearest" });
+            }
+            flashTreeNodeById(node._id);
+          }, 0);
+          return;
+        }
+
+        var model = path[i];
+        var nodeScope = findNodeScopeByModel(nodesScope, model);
+        if (!nodeScope) {
+          if (triesLeft <= 0) return;
+          return $timeout(function() { step(i, nodesScope, triesLeft - 1); }, 0);
+        }
+
+        if (typeof nodeScope.expand === "function") {
+          nodeScope.expand();
+        }
+
+        var nextNodesScope = nodeScope.$childNodesScope || nodesScope;
+        $timeout(function() { step(i + 1, nextNodesScope, 40); }, 0);
+      })(0, rootNodesScope, 40);
+    }
+
+    $scope.revealAstNodeAtCharIndex = function(charIndex) {
+      if (!$scope._astRoot) return;
+      var src = getCurrentSource();
+      if (!$scope._sourceIndex || $scope._sourceIndex.source !== (src || "")) {
+        $scope._sourceIndex = buildSourceIndex(src || "");
+      }
+      var byteOffset = charIndex;
+      if ($scope._sourceIndex && $scope._sourceIndex.charToByteIndex) {
+        var map = $scope._sourceIndex.charToByteIndex;
+        var idx = Math.max(0, Math.min(charIndex, map.length - 1));
+        byteOffset = map[idx];
+      }
+      var target = findDeepestNodeContaining($scope._astRoot, byteOffset);
+      if (!target) return;
+      revealNodeInTree(target);
+    };
 
 
     // File input is handled by `fileChange` directive using FileReader.
@@ -240,19 +452,24 @@ func main() {\n\
     };
 
     $scope.parse = async function() {
-      if (!$scope.source || $scope.source.trim() === "") {
+      // Always parse from the *current editor content*.
+      var current = getCurrentSource();
+      $scope.source = current;
+
+      if (!current || current.trim() === "") {
         alert("请输入 Go 源代码");
         return;
       }
       
       // 设置源代码到全局变量，WASM 会从这里读取
-      window.global.source = $scope.source;
-      window.source = $scope.source; // 也设置到 window，确保兼容性
+      window.global.source = current;
+      window.source = current; // 也设置到 window，确保兼容性
       
       // 清空之前的输出
       window.output = "";
       
       try {
+        $scope._parseInFlight = true;
         if (typeof window.wasmReady === 'undefined' || !window.wasmReady) {
           alert("WASM 模块正在加载中，请稍候...");
           return;
@@ -262,7 +479,7 @@ func main() {\n\
         await window.startWasm();
 
         // Hint options for big inputs (Go side also has defaults).
-        var srcLen = ($scope.source || "").length;
+        var srcLen = (current || "").length;
         window.goastOptions = window.goastOptions || {};
         if (srcLen > 200000) {
           window.goastOptions.includeDump = false;
@@ -293,18 +510,22 @@ func main() {\n\
           return;
         }
         
+        $scope._astRoot = data.ast;
+        annotateAstParentsAndIds($scope._astRoot);
         $scope.asts   = [data.ast];
-        $scope.source = data.source;
         $scope.dump   = data.dump;
 
         // Build byte->char index once per parse, used for accurate jump (esp. non-ASCII).
-        $scope._sourceIndex = buildSourceIndex($scope.source || "");
+        $scope._sourceIndex = buildSourceIndex(current || "");
+        $scope._lastParsedSource = current || "";
         
         // 手动触发 Angular 更新
         $scope.$apply();
       } catch (err) {
         console.error("Error parsing source:", err);
         alert("解析错误: " + err.message);
+      } finally {
+        $scope._parseInFlight = false;
       }
     }
 

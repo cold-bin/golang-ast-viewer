@@ -129,7 +129,7 @@
 
           <!-- Nested node template -->
           <script type="text/ng-template" id="nodes_renderer.html">
-            <div class="tree-node tree-node-content" data-nodrag ng-click="toggle(this); focus(this); $event.stopPropagation()">
+            <div class="tree-node tree-node-content" data-nodrag data-ast-id="{{node._id}}" ng-click="toggle(this); focus(this); $event.stopPropagation()">
               <a class="btn pure-button pure-button--success" data-nodrag ><span class="glyphicon" ng-class="{'glyphicon-chevron-right': collapsed, 'glyphicon-chevron-down': !collapsed}">
                 {{ collapsedLabel(this) }}
               </span></a>
