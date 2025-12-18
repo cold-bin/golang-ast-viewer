@@ -212,7 +212,12 @@ func main() {\n\
     }
 
     $scope.toggle = function(scope) {
+      // angular-ui-tree toggles `scope.collapsed`, but our lazy rendering uses `node.collapsed`.
+      // Keep them in sync so deeper nodes can be rendered when expanded.
       scope.toggle();
+      if (scope && scope.node) {
+        scope.node.collapsed = !!scope.collapsed;
+      }
     };
 
     $scope.focus = function(scope) {
