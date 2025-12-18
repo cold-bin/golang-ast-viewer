@@ -10,9 +10,28 @@ goastapp.directive('fileChange', function () {
         // onChange, push the files to $scope.files.
         element.bind('change', function (event) {
             var files = event.target.files;
-            $scope.$apply(function () {
-                 $scope.sourcefile = files[0];
-            });
+            var file = files && files[0];
+            if (!file) return;
+
+            // Read file content into the editor textarea (ng-model="source").
+            var reader = new FileReader();
+            reader.onload = function () {
+                $scope.$apply(function () {
+                    $scope.sourcefile = file;
+                    $scope.source = reader.result || "";
+                    // Reset previous results; user can click Parse to re-generate AST.
+                    $scope.asts = null;
+                    $scope.dump = null;
+                });
+            };
+            reader.onerror = function () {
+                $scope.$apply(function () {
+                    $scope.sourcefile = file;
+                });
+                console.error("Failed to read file:", reader.error);
+                alert("读取文件失败: " + (reader.error && reader.error.message ? reader.error.message : "unknown error"));
+            };
+            reader.readAsText(file);
         });
     };
 
@@ -79,17 +98,8 @@ func main() {\n\
 ";
 
 
-    $scope.$watch('sourcefile', function (newValue, oldValue) {
-        // Only act when our property has changed.
-        if (newValue != oldValue) {
-            // Hand file off to uploadService.
-            uploadService.send($scope.sourcefile,function(data, status, headers, config) {
-              $scope.asts   = [data.ast];
-              $scope.source = data.source;
-              $scope.dump   = data.dump;
-            });
-        }
-    }, true);
+    // File input is handled by `fileChange` directive using FileReader.
+    // (Legacy uploadService/parse.json flow removed to avoid unnecessary network + overwrite.)
 
     $scope.collapsedLabel = function(scope) {
 
