@@ -7,8 +7,14 @@
     <link rel="stylesheet" href="goast.css">
     <link href='https://fonts.googleapis.com/css?family=Raleway' rel='stylesheet' type='text/css'>
 
+    <!-- CodeMirror (Go syntax highlighting) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+
     <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.2.18/angular.min.js"></script>
     <script src="angular-ui-tree.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/go/go.min.js"></script>
     <script src="goast.js"></script>
     <script src="wasm_exec.js"></script>
     <script>
@@ -127,7 +133,7 @@
               <a class="btn pure-button pure-button--success" data-nodrag ><span class="glyphicon" ng-class="{'glyphicon-chevron-right': collapsed, 'glyphicon-chevron-down': !collapsed}">
                 {{ collapsedLabel(this) }}
               </span></a>
-              {{node.label}}
+              <span class="node-label">{{node.label}}</span>
             </div>
             <ol ui-tree-nodes="" ng-if="!collapsed" ng-model="node.children">
               <li ng-repeat="node in node.children track by $index" ui-tree-node ng-include="'nodes_renderer.html'" collapsed="true">

@@ -97,6 +97,117 @@ func main() {\n\
 }\n\
 ";
 
+    // CodeMirror (syntax highlighting) setup
+    $scope.editor = null;
+    $scope._updatingFromEditor = false;
+    $scope._updatingFromModel = false;
+
+    function ensureEditor() {
+      if ($scope.editor) return $scope.editor;
+      if (typeof window.CodeMirror === "undefined") return null;
+
+      var textarea = document.getElementById("code");
+      if (!textarea) return null;
+
+      document.body.classList.add("goast-has-codemirror");
+
+      var editor = window.CodeMirror.fromTextArea(textarea, {
+        mode: "text/x-go",
+        theme: "material-darker",
+        lineNumbers: true,
+        lineWrapping: true,
+        indentUnit: 4,
+        tabSize: 4,
+        viewportMargin: 20, // keep it responsive for big files
+      });
+
+      editor.setValue($scope.source || "");
+
+      editor.on("change", function(cm) {
+        if ($scope._updatingFromModel) return;
+        $scope._updatingFromEditor = true;
+        var v = cm.getValue();
+        $scope.$applyAsync(function() {
+          $scope.source = v;
+          $scope._updatingFromEditor = false;
+        });
+      });
+
+      // expose for other helpers
+      window.__goastEditor = editor;
+      $scope.editor = editor;
+      return editor;
+    }
+
+    // Keep editor in sync when model changes from outside (file load / parse result)
+    $scope.$watch('source', function(newValue, oldValue) {
+      if (newValue === oldValue) return;
+      if ($scope._updatingFromEditor) return;
+      var editor = ensureEditor();
+      if (!editor) return;
+      $scope._updatingFromModel = true;
+      editor.setValue(newValue || "");
+      $scope._updatingFromModel = false;
+    });
+
+    // Initialize editor after initial render
+    setTimeout(ensureEditor, 0);
+
+    function buildSourceIndex(source) {
+      // Builds mapping from UTF-8 byte offset -> JS string index (UTF-16 code units).
+      // This makes AST byte positions accurate even with non-ASCII source.
+      var maxBytes = 2 * 1024 * 1024; // safety: don't build for extremely huge files
+
+      if (typeof TextEncoder === "undefined") {
+        return { byteToCharIndex: null, source: source || "", maxBytes: maxBytes };
+      }
+
+      var s = source || "";
+      var byteToCharIndex = null;
+      try {
+        var enc = new TextEncoder();
+        var bytes = enc.encode(s);
+        if (bytes.length > maxBytes) {
+          return { byteToCharIndex: null, source: s, maxBytes: maxBytes };
+        }
+        byteToCharIndex = new Uint32Array(bytes.length + 1);
+      } catch (e) {
+        return { byteToCharIndex: null, source: s, maxBytes: maxBytes };
+      }
+
+      var bytePos = 0;
+      for (var i = 0; i < s.length; i++) {
+        var startIndex = i;
+        var code = s.charCodeAt(i);
+        var cp = code;
+
+        // Surrogate pair -> full code point
+        if (code >= 0xD800 && code <= 0xDBFF && i + 1 < s.length) {
+          var next = s.charCodeAt(i + 1);
+          if (next >= 0xDC00 && next <= 0xDFFF) {
+            cp = ((code - 0xD800) << 10) + (next - 0xDC00) + 0x10000;
+            i++; // consume low surrogate
+          }
+        }
+
+        var utf8Len = 1;
+        if (cp <= 0x7F) utf8Len = 1;
+        else if (cp <= 0x7FF) utf8Len = 2;
+        else if (cp <= 0xFFFF) utf8Len = 3;
+        else utf8Len = 4;
+
+        for (var b = 0; b < utf8Len; b++) {
+          if (bytePos + b >= byteToCharIndex.length) break;
+          byteToCharIndex[bytePos + b] = startIndex;
+        }
+        bytePos += utf8Len;
+        if (bytePos >= byteToCharIndex.length) break;
+      }
+
+      byteToCharIndex[Math.min(bytePos, byteToCharIndex.length - 1)] = s.length;
+      return { byteToCharIndex: byteToCharIndex, source: s, byteLen: bytePos, maxBytes: maxBytes };
+    }
+
 
     // File input is handled by `fileChange` directive using FileReader.
     // (Legacy uploadService/parse.json flow removed to avoid unnecessary network + overwrite.)
@@ -185,6 +296,9 @@ func main() {\n\
         $scope.asts   = [data.ast];
         $scope.source = data.source;
         $scope.dump   = data.dump;
+
+        // Build byte->char index once per parse, used for accurate jump (esp. non-ASCII).
+        $scope._sourceIndex = buildSourceIndex($scope.source || "");
         
         // 手动触发 Angular 更新
         $scope.$apply();
@@ -199,17 +313,84 @@ func main() {\n\
     };
 
     $scope.focus = function(scope) {
-      var textarea = document.getElementById("code")
-      var from = scope.node.pos - 1;
-      var to   = scope.node.end - 1;
+      var fromByte = scope.node.pos - 1;
+      var toByte   = scope.node.end - 1;
 
-      if (textarea.setSelectionRange) {
-        textarea.setSelectionRange(from, to);
-      } else if(textarea.createTextRange) {
-        var rng = textarea.createTextRange();
-        rng.moveStart("character",  from );
-        rng.moveEnd("character",  to);
-        rng.select();
+      var from = fromByte;
+      var to = toByte;
+      // Ensure mapping corresponds to current source.
+      if (!$scope._sourceIndex || $scope._sourceIndex.source !== ($scope.source || "")) {
+        $scope._sourceIndex = buildSourceIndex($scope.source || "");
+      }
+      if ($scope._sourceIndex && $scope._sourceIndex.byteToCharIndex) {
+        var map = $scope._sourceIndex.byteToCharIndex;
+        var max = map.length - 1;
+        var fb = Math.max(0, Math.min(fromByte, max));
+        var tb = Math.max(0, Math.min(toByte, max));
+        from = map[fb] || 0;
+        to = map[tb] || from;
+      }
+
+      // Prefer CodeMirror selection when available
+      var editor = $scope.editor || window.__goastEditor;
+      if (editor && typeof editor.posFromIndex === "function") {
+        var a = editor.posFromIndex(Math.max(0, from));
+        var b = editor.posFromIndex(Math.max(0, to));
+        editor.focus();
+        editor.setSelection(a, b);
+        editor.scrollIntoView({ from: a, to: b }, 80);
+        // Flash highlight 3 times to draw attention.
+        (function flashSelection3Times() {
+          try {
+            if ($scope._flashClearTimer) {
+              clearTimeout($scope._flashClearTimer);
+              $scope._flashClearTimer = null;
+            }
+            if ($scope._flashMarker) {
+              $scope._flashMarker.clear();
+              $scope._flashMarker = null;
+            }
+
+            // If selection is empty, still flash a small range.
+            var fromPos = a;
+            var toPos = b;
+            if (editor.indexFromPos(fromPos) === editor.indexFromPos(toPos)) {
+              var idx = editor.indexFromPos(fromPos);
+              fromPos = editor.posFromIndex(Math.max(0, idx));
+              toPos = editor.posFromIndex(Math.max(0, idx + 1));
+            }
+
+            $scope._flashMarker = editor.markText(fromPos, toPos, {
+              className: "goast-flash",
+              inclusiveLeft: true,
+              inclusiveRight: true
+            });
+
+            // Total duration matches CSS animation: 450ms * 3 = 1350ms (+ a small buffer)
+            $scope._flashClearTimer = setTimeout(function() {
+              if ($scope._flashMarker) {
+                $scope._flashMarker.clear();
+                $scope._flashMarker = null;
+              }
+              $scope._flashClearTimer = null;
+            }, 1450);
+          } catch (e) {
+            // Don't break navigation if marking fails.
+          }
+        })();
+        return false;
+      }
+
+      var textarea = document.getElementById("code");
+      if (textarea) {
+        if (textarea.setSelectionRange) {
+          textarea.setSelectionRange(from, to);
+        } else if(textarea.createTextRange) {
+          var rng = textarea.createTextRange();
+          rng.moveStart("character",  from );
+          rng.moveEnd("character",  to);
+          rng.select();
+        }
       }
       return false;
     }
