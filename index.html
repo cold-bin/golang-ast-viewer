@@ -129,14 +129,14 @@
               </span></a>
               {{node.label}}
             </div>
-            <ol ui-tree-nodes="" ng-if="!node.collapsed" ng-model="node.children">
-              <li ng-repeat="node in node.children track by $index" ui-tree-node ng-include="'nodes_renderer.html'" collapsed="node.collapsed">
+            <ol ui-tree-nodes="" ng-if="!collapsed" ng-model="node.children">
+              <li ng-repeat="node in node.children track by $index" ui-tree-node ng-include="'nodes_renderer.html'" collapsed="true">
               </li>
             </ol>
           </script>
           <div ui-tree id="tree-root">
             <ol ui-tree-nodes="" ng-model="asts">
-              <li ng-repeat="node in asts track by $index" ui-tree-node ng-include="'nodes_renderer.html'" collapsed="node.collapsed"></li>
+              <li ng-repeat="node in asts track by $index" ui-tree-node ng-include="'nodes_renderer.html'"></li>
             </ol>
           </div>
 

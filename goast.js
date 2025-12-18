@@ -104,44 +104,18 @@ func main() {\n\
       }
     }
 
-    function walkAst(node, fn) {
-      if (!node) return;
-      fn(node);
-      if (node.children && node.children.length) {
-        for (var i = 0; i < node.children.length; i++) {
-          walkAst(node.children[i], fn);
-        }
-      }
-    }
-
-    function initCollapsed(root) {
-      if (!root) return;
-      // Keep the root expanded, collapse everything else by default for performance.
-      root.collapsed = false;
-      walkAst(root, function(n) {
-        if (n !== root) n.collapsed = true;
-      });
-    }
+    var getRootNodesScope = function() {
+      return angular.element(document.getElementById("tree-root")).scope();
+    };
 
     $scope.collapseAll = function() {
-      if (!$scope.asts) return;
-      for (var i = 0; i < $scope.asts.length; i++) {
-        (function(root) {
-          root.collapsed = false;
-          walkAst(root, function(n) {
-            if (n !== root) n.collapsed = true;
-          });
-        })($scope.asts[i]);
-      }
+      var scope = getRootNodesScope();
+      scope.collapseAll();
     };
 
     $scope.expandAll = function() {
-      if (!$scope.asts) return;
-      for (var i = 0; i < $scope.asts.length; i++) {
-        walkAst($scope.asts[i], function(n) {
-          n.collapsed = false;
-        });
-      }
+      var scope = getRootNodesScope();
+      scope.expandAll();
     };
 
     $scope.parse = async function() {
@@ -198,7 +172,6 @@ func main() {\n\
           return;
         }
         
-        initCollapsed(data.ast);
         $scope.asts   = [data.ast];
         $scope.source = data.source;
         $scope.dump   = data.dump;
@@ -212,12 +185,7 @@ func main() {\n\
     }
 
     $scope.toggle = function(scope) {
-      // angular-ui-tree toggles `scope.collapsed`, but our lazy rendering uses `node.collapsed`.
-      // Keep them in sync so deeper nodes can be rendered when expanded.
       scope.toggle();
-      if (scope && scope.node) {
-        scope.node.collapsed = !!scope.collapsed;
-      }
     };
 
     $scope.focus = function(scope) {
@@ -236,6 +204,6 @@ func main() {\n\
       return false;
     }
 
-    // collapseAll / expandAll implemented above (data-driven) for performance + works with lazy rendering.
+    // collapseAll / expandAll use ui-tree's built-in implementation.
 
 }]);
