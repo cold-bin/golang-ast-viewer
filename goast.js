@@ -327,8 +327,12 @@ func main() {\n\
         var max = map.length - 1;
         var fb = Math.max(0, Math.min(fromByte, max));
         var tb = Math.max(0, Math.min(toByte, max));
+        // Go positions are byte offsets; CodeMirror expects a [from, to) range in char indices.
+        // Use tb+1 to make the end exclusive and avoid gaps (especially around spaces/punctuation).
         from = map[fb] || 0;
-        to = map[tb] || from;
+        var tb1 = Math.max(0, Math.min(toByte + 1, max));
+        to = map[tb1] || from;
+        if (to < from) to = from;
       }
 
       // Prefer CodeMirror selection when available
@@ -346,34 +350,22 @@ func main() {\n\
               clearTimeout($scope._flashClearTimer);
               $scope._flashClearTimer = null;
             }
-            if ($scope._flashMarker) {
-              $scope._flashMarker.clear();
-              $scope._flashMarker = null;
-            }
 
-            // If selection is empty, still flash a small range.
-            var fromPos = a;
-            var toPos = b;
-            if (editor.indexFromPos(fromPos) === editor.indexFromPos(toPos)) {
-              var idx = editor.indexFromPos(fromPos);
-              fromPos = editor.posFromIndex(Math.max(0, idx));
-              toPos = editor.posFromIndex(Math.max(0, idx + 1));
-            }
+            // Flash the selection itself (continuous across spaces), instead of markText spans.
+            var wrapper = editor.getWrapperElement && editor.getWrapperElement();
+            if (!wrapper) return;
 
-            $scope._flashMarker = editor.markText(fromPos, toPos, {
-              className: "goast-flash",
-              inclusiveLeft: true,
-              inclusiveRight: true
-            });
+            // restart animation
+            wrapper.classList.remove("goast-flash-selection");
+            // force reflow so animation restarts even when clicking quickly
+            void wrapper.offsetWidth;
+            wrapper.classList.add("goast-flash-selection");
 
-            // Total duration matches CSS animation: 450ms * 3 = 1350ms (+ a small buffer)
+            // Keep in sync with CSS: 900ms * 3 (+ a small buffer)
             $scope._flashClearTimer = setTimeout(function() {
-              if ($scope._flashMarker) {
-                $scope._flashMarker.clear();
-                $scope._flashMarker = null;
-              }
+              wrapper.classList.remove("goast-flash-selection");
               $scope._flashClearTimer = null;
-            }, 1450);
+            }, 2900);
           } catch (e) {
             // Don't break navigation if marking fails.
           }
