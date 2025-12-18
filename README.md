@@ -1,5 +1,7 @@
 # GoAst Viewer
 
+在 goast-viewer 的基础上，做了以下事项：
+
 - 更新 go 版本到 1.24.1
 - 方便开 server 访问网页
 - 修改和美化页面
